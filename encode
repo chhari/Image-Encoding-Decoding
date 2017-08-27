@@ -1,0 +1,277 @@
+#!/usr/bin/env python
+
+import sys
+import os
+from PIL import Image, ImageMath
+from datetime import datetime
+import timeit
+
+try:
+    import Tkinter as tk
+    try:
+    	import ttk
+    except:
+    	import Tkinter.ttk as ttk
+except ImportError:
+    import tkinter as tk
+    import tkinter.ttk as ttk
+
+try:
+    import tkFileDialog as filedialog
+except ImportError:
+    import tkinter.filedialog as filedialog
+
+
+class EC5_Viewer():
+
+	def __init__(self, filenames, outputFilename):
+		self.filenames = filenames
+		self.outputFilename = outputFilename
+		self.usingGUI = False
+		# self.createGUI()
+
+	def createGUI(self):
+		HEIGHT = 400
+		WIDTH = 700
+		PADDING = 20
+		BG = "#DCDCDC"
+
+		self.usingGUI = True
+
+		LISTBOX_HEIGHT = HEIGHT - 32 - 3*PADDING
+		LISTBOX_X = PADDING
+		LISTBOX_Y = PADDING
+		LISTBOX_WIDTH = WIDTH * .75 - PADDING * 1.5
+
+		# Create GUI window
+		self.GUI = tk.Tk()
+		self.GUI.title("EC5 Encoder")
+		self.GUI.configure(bg=BG)
+		self.GUI.geometry(str(WIDTH) + "x" + str(HEIGHT))
+
+		# Create and populate listbox with image filenames/paths
+		self.listbox = tk.Listbox(self.GUI, selectmode=tk.BROWSE)
+		self.listbox.place(x = LISTBOX_X, y = LISTBOX_Y, width = LISTBOX_WIDTH, height = LISTBOX_HEIGHT)
+
+		# Init vertical scrollbar for listbox
+		# TODO: horizontal scrollbar?
+		scrollbar = tk.Scrollbar(self.listbox, orient=tk.VERTICAL)
+		scrollbar.config(command = self.listbox.yview)
+		scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+		# Insert all filenames
+		for name in self.filenames:
+			self.listbox.insert(tk.END, name)
+
+		# Insert Buttons to Add/Remove/Swap items
+		BUTTON_WIDTH = WIDTH * .25 - PADDING * 1.5
+		BUTTON_HEIGHT = 32
+		BUTTON_PADDING = 2
+		BUTTON_X = WIDTH - BUTTON_WIDTH - PADDING
+
+		buttons = [
+			["Move Up", self.onMoveUp],
+			["Move Down", self.onMoveDown],
+			["Add Image", self.addFile],
+			["Delete Images", self.deleteFile],
+		]
+		self.buttons = []
+
+		for i in range(len(buttons)):
+			buttonText = buttons[i][0]
+			buttonCommand = buttons[i][1]
+
+			button = tk.Button(self.GUI, text = buttonText, command=buttonCommand, highlightbackground=BG)
+			button.place(x = BUTTON_X, y = LISTBOX_HEIGHT/2 + (i-2)*(BUTTON_HEIGHT+2*BUTTON_PADDING), width = BUTTON_WIDTH)
+
+			self.buttons.append(button)
+
+		# Create Text Entry Field to input filename, enter text given
+		self.outputEntry = tk.Entry(self.GUI, highlightbackground=BG)
+		self.outputEntry.place(x = PADDING, y = HEIGHT - 32 - PADDING, width = LISTBOX_WIDTH)
+		self.outputEntry.insert(0, self.outputFilename)
+
+		# Create Button that starts encoding
+		self.encodeButton = tk.Button(self.GUI, text = "Encode Images", command=self.encode, highlightbackground=BG)
+		self.encodeButton.place(x = BUTTON_X, y = HEIGHT - 32 - PADDING, width = BUTTON_WIDTH)
+
+		# Create (but don't show) Progressbar for status of encoding
+		self.pb = ttk.Progressbar(self.GUI, orient=tk.HORIZONTAL, maximum=len(filenames)+0.0001, mode="determinate")
+		self.pb.placeOptions = {"x": PADDING, "y": HEIGHT - 32 - PADDING, "width": WIDTH - 2*PADDING, "height": 32}
+
+		# self.viewButton = tk.Button(self.GUI, text = "View Images", command=self.encode)
+		# self.viewButton.placeOptions = {"x": BUTTON_X, "y": HEIGHT - 32 - PADDING, "width": BUTTON_WIDTH}
+
+		# Create Label to indicate completion and button to close window
+		self.completionLabel = tk.Label(self.GUI, text="Encoding Complete!", bg=BG, justify=tk.CENTER, font="bold")
+		self.completionLabel.placeOptions = {"x": PADDING + LISTBOX_WIDTH/2, "y": HEIGHT - 16 - PADDING, "width": LISTBOX_WIDTH, "height": 32, "anchor":tk.CENTER}
+
+		self.closeButton = tk.Button(self.GUI, text = "Done", command=self.destroy, highlightbackground=BG)
+		self.closeButton.placeOptions = {"x": BUTTON_X, "y": HEIGHT - 32 - PADDING, "width": BUTTON_WIDTH, "height": 32}
+
+		tk.mainloop()
+
+	def onMoveUp(self):
+		if len(self.listbox.curselection()) == 0:
+			return
+
+		selectedIndex = int(self.listbox.curselection()[0])
+
+		if selectedIndex > 0:
+			self.swapWithNext(selectedIndex-1)
+			self.listbox.select_set(selectedIndex-1)
+
+	def onMoveDown(self):
+		if len(self.listbox.curselection()) == 0:
+			return
+
+		selectedIndex = int(self.listbox.curselection()[0])
+
+		if selectedIndex < len(self.filenames) - 1:
+			self.swapWithNext(selectedIndex)
+			self.listbox.select_set(selectedIndex+1)
+
+	def swapWithNext(self, i):
+
+		temp = self.filenames[i]
+		self.filenames[i] = self.filenames[i+1]
+		self.filenames[i+1] = temp
+
+		self.listbox.delete(i)
+		self.listbox.delete(i)
+		self.listbox.insert(i, self.filenames[i+1])
+		self.listbox.insert(i, self.filenames[i])
+
+	def addFile(self):
+		fileOpts = {
+			"filetypes": [('image files', '.jpg')],
+			"multiple": 1,
+			"initialdir": os.getcwd()
+		}
+		newFilenames = list(filedialog.askopenfilename(**fileOpts))
+
+		self.filenames += newFilenames
+
+		for f in newFilenames:
+			self.listbox.insert(tk.END, f)
+
+	def deleteFile(self):
+		if len(self.listbox.curselection()) == 0:
+			return
+
+		selectedIndex = int(self.listbox.curselection()[0])
+
+		self.listbox.delete(selectedIndex)
+		self.filenames.pop(selectedIndex)
+
+	def encode(self):
+		TEMP_FILENAME = "encoded.tmp.jpg"	# Temporary file to store encoded bytes before concatenation
+
+		start = timeit.default_timer()	# Record time at start
+
+		# If using the GUI, use the inputed filename and disable the GUI
+		if self.usingGUI:
+			self.outputFilename = self.outputEntry.get()
+			# Get rid out Output Filename Entry Field and Encode Button
+			self.outputEntry.place_forget()
+			self.encodeButton.place_forget()
+
+			# Disable the UI
+			for b in self.buttons:
+				b.config(state=tk.DISABLED)
+			self.listbox.config(state=tk.DISABLED)
+
+			self.pb.place(**self.pb.placeOptions)
+
+		destination = open(self.outputFilename, 'wb')
+
+		totalsize = 0
+		for name in filenames:
+
+			totalsize += os.path.getsize(name)
+
+			img = Image.open(name)
+			compressedImage = self.compressImage(img)
+			compressedImage.save(TEMP_FILENAME, optimize=True)
+
+			inFile = open(TEMP_FILENAME, "rb")
+			data = inFile.read()
+			inFile.close()
+
+			destination.write(data)
+
+			if self.usingGUI:
+				self.pb.step(1.0)
+				self.GUI.update_idletasks()
+
+		destination.close()
+		os.remove(TEMP_FILENAME)
+		stop = timeit.default_timer()
+
+		newsize = os.path.getsize(self.outputFilename)
+		reduction = (totalsize-newsize) * 1.0 / totalsize * 100
+
+		print("\n")
+		print("Sum of individual file sizes: %d bytes" % totalsize)
+		print("New file size: %d bytes" % newsize)
+		print("Size reduction: {0:.2f}%".format(reduction))
+		print("\n")
+		print("Encoding time: {0:.2f}s".format(stop-start))
+		print("\n")
+
+		if self.usingGUI:
+			self.encodeCompletion()
+
+	def encodeCompletion(self):
+		self.pb.place_forget()
+		self.completionLabel.place(**self.completionLabel.placeOptions)
+		self.closeButton.place(**self.closeButton.placeOptions)
+
+	def destroy(self):
+		self.GUI.destroy()
+
+	def compressImage(self, oldImage):
+		# 19.614652211001157s
+		# oldPixels = oldImage.load()
+
+		# newImage = Image.new('RGB', oldImage.size, "black")
+		# newPixels = newImage.load()
+
+		# for i in range(newImage.size[0]):
+		# 	for j in range(newImage.size[1]):
+		# 		# pixels[i,j] = oldPixels[i,j]
+		# 		newPixels[i,j] = (oldPixels[i,j][0] // 2, oldPixels[i,j][1] // 2, oldPixels[i,j][2] // 2)
+
+		# return newImage
+
+		# 2.5539315099995292
+		channels = list(oldImage.split())
+		newChannels = [ImageMath.eval("a/2", a=x).convert("L") for x in channels]
+		scaledImg = Image.merge("RGB", tuple(newChannels))
+
+		return scaledImg
+
+
+if __name__ == "__main__":
+	if "--output" not in sys.argv:
+		print("Please provide an output file name.")
+	else:
+		outputIndex = sys.argv.index("--output") + 1
+		if outputIndex == 2:
+			print("Please provide at least one file to encode.")
+		elif outputIndex == len(sys.argv):
+			print("Please provide an output file name.")
+		else:
+
+			showGUI = "-g" in sys.argv
+			if showGUI:
+				sys.argv.remove("-g")
+
+			filenames = sys.argv[1:outputIndex-1]
+			outputFilename = sys.argv[outputIndex]
+			viewer = EC5_Viewer(filenames, outputFilename)
+
+			if showGUI:
+				viewer.createGUI()
+			else:
+				viewer.encode()
